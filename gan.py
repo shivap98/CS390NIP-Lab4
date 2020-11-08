@@ -25,24 +25,27 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 # NOTE: mnist_d is no credit
 # NOTE: cifar_10 is extra credit
-#DATASET = "mnist_d"
+
+# DATASET = "mnist_d"
 DATASET = "mnist_f"
-#DATASET = "cifar_10"
+# DATASET = "cifar_10"
 
 if DATASET == "mnist_d":
 	IMAGE_SHAPE = (IH, IW, IZ) = (28, 28, 1)
 	LABEL = "numbers"
+	COLORS = 1
 
 elif DATASET == "mnist_f":
 	IMAGE_SHAPE = (IH, IW, IZ) = (28, 28, 1)
 	CLASSLIST = ["top", "trouser", "pullover", "dress", "coat", "sandal", "shirt", "sneaker", "bag", "ankle boot"]
-	# TODO: choose a label to train on from the CLASSLIST above
-	LABEL = "coat"
+	LABEL = "shirt"
+	COLORS = 1
 
 elif DATASET == "cifar_10":
 	IMAGE_SHAPE = (IH, IW, IZ) = (32, 32, 3)
 	CLASSLIST = ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
 	LABEL = "airplane"
+	COLORS = 3
 
 IMAGE_SIZE = IH*IW*IZ
 
@@ -59,34 +62,44 @@ VERBOSE_OUTPUT = False
 
 # Load in and report the shape of dataset
 def getRawData():
+
 	if DATASET == "mnist_f":
 		(xTrain, yTrain), (xTest, yTest) = tf.keras.datasets.fashion_mnist.load_data()
+
 	elif DATASET == "cifar_10":
 		(xTrain, yTrain), (xTest, yTest) = tf.keras.datasets.cifar10.load_data()
+
 	elif DATASET == "mnist_d":
 		(xTrain, yTrain), (xTest, yTest) = tf.keras.datasets.mnist.load_data()
+
 	print("Shape of xTrain dataset: %s." % str(xTrain.shape))
 	print("Shape of yTrain dataset: %s." % str(yTrain.shape))
 	print("Shape of xTest dataset: %s." % str(xTest.shape))
 	print("Shape of yTest dataset: %s." % str(yTest.shape))
+
 	return ((xTrain, yTrain), (xTest, yTest))
 
 # Filter out the dataset to only include images with our LABEL, meaning we may also discard
 # class labels for the images because we know exactly what to expect
 def preprocessData(raw):
+
 	((xTrain, yTrain), (xTest, yTest)) = raw
+
 	if DATASET == "mnist_d":
 		xP = np.r_[xTrain, xTest]
+
 	else:
 		c = CLASSLIST.index(LABEL)
 		x = np.r_[xTrain, xTest]
 		y = np.r_[yTrain, yTest].flatten()
 		ilist = [i for i in range(y.shape[0]) if y[i] == c]
 		xP = x[ilist]
+
 	# NOTE: Normalize from 0 to 1 or -1 to 1
 	#xP = xP/255.0
 	xP = xP/127.5 - 1
 	print("Shape of Preprocessed dataset: %s." % str(xP.shape))
+
 	return xP
 
 
@@ -94,23 +107,40 @@ def preprocessData(raw):
 
 # Model that discriminates between fake and real dataset images
 def buildDiscriminator():
+
+	# a discriminator which takes in a (28 x 28 x 1) image - possibly from mnist_f
+	# and possibly from the generator - and outputs a single digit REAL (1) or FAKE (0)
+
 	model = Sequential()
+	model.add(Flatten(input_shape=IMAGE_SHAPE))
+	model.add(Dense(512))
+	model.add(LeakyReLU(alpha=0.2))
+	model.add(Dense(256))
+	model.add(LeakyReLU(alpha=0.2))
+	model.add(Dense(1, activation="sigmoid"))
 
-	# TODO: build a discriminator which takes in a (28 x 28 x 1) image - possibly from mnist_f
-	#       and possibly from the generator - and outputs a single digit REAL (1) or FAKE (0)
-
-	# Creating a Keras Model out of the network
 	inputTensor = Input(shape = IMAGE_SHAPE)
 	return Model(inputTensor, model(inputTensor))
 
 # Model that generates a fake image from random noise
 def buildGenerator():
+
+	# A generator which takes in a (NOISE_SIZE) noise array and outputs a fake
+	# mnist_f (28 x 28 x 1) image
+
 	model = Sequential()
+	model.add(Dense(256, input_dim=NOISE_SIZE))
+	model.add(LeakyReLU(alpha=0.2))
+	model.add(BatchNormalization(momentum=0.8))
+	model.add(Dense(512))
+	model.add(LeakyReLU(alpha=0.2))
+	model.add(BatchNormalization(momentum=0.8))
+	model.add(Dense(1024))
+	model.add(LeakyReLU(alpha=0.2))
+	model.add(BatchNormalization(momentum=0.8))
+	model.add(Dense(IMAGE_SIZE, activation="tanh"))
+	model.add(Reshape(IMAGE_SHAPE))
 
-	# TODO: build a generator which takes in a (NOISE_SIZE) noise array and outputs a fake
-	#       mnist_f (28 x 28 x 1) image
-
-	# Creating a Keras Model out of the network
 	inputTensor = Input(shape = (NOISE_SIZE,))
 	return Model(inputTensor, model(inputTensor))
 
@@ -137,6 +167,7 @@ def buildGAN(images, epochs = 40000, batchSize = 32, loggingInterval = 0):
 
 		# Train discriminator with a true and false batch
 		batch = images[np.random.randint(0, images.shape[0], batchSize)]
+		batch = batch.reshape(batchSize, images.shape[1], images.shape[2], COLORS)
 		noise = np.random.normal(0, 1, (batchSize, NOISE_SIZE))
 		genImages = generator.predict(noise)
 		advTrueLoss = adversary.train_on_batch(batch, trueCol)
@@ -170,18 +201,24 @@ def runGAN(generator, outfile):
 
 def main():
 	print("Starting %s image generator program." % LABEL)
+
 	# Make output directory
 	if not os.path.exists(OUTPUT_DIR):
 		os.makedirs(OUTPUT_DIR)
-	# Receive all of mnist_f
+
+	# Receive all of data
 	raw = getRawData()
+
 	# Filter for just the class we are trying to generate
 	data = preprocessData(raw)
+
 	# Create and train all facets of the GAN
 	(generator, adv, gan) = buildGAN(data, epochs = 60000, loggingInterval = 1000)
+
 	# Utilize our spooky neural net gimmicks to create realistic counterfeit images
 	for i in range(10):
 		runGAN(generator, OUTPUT_DIR + "/" + OUTPUT_NAME + "_final_%d.png" % i)
+
 	print("Images saved in %s directory." % OUTPUT_DIR)
 
 if __name__ == '__main__':
