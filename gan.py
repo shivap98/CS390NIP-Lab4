@@ -5,6 +5,7 @@
 # uses CIFAR-10 https://www.cs.toronto.edu/~kriz/cifar.html
 
 import os
+import sys
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
@@ -29,6 +30,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # DATASET = "mnist_d"
 DATASET = "mnist_f"
 # DATASET = "cifar_10"
+
+d = 1
+g = 1
 
 if DATASET == "mnist_d":
 	IMAGE_SHAPE = (IH, IW, IZ) = (28, 28, 1)
@@ -56,7 +60,7 @@ OUTPUT_NAME = DATASET + "_" + LABEL
 OUTPUT_DIR = "./outputs/" + OUTPUT_NAME
 
 # NOTE: switch to True in order to receive debug information
-VERBOSE_OUTPUT = False
+VERBOSE_OUTPUT = True
 
 ################################### DATA FUNCTIONS ###################################
 
@@ -150,43 +154,48 @@ def buildGAN(images, epochs = 40000, batchSize = 32, loggingInterval = 0):
 	loss = "binary_crossentropy"
 
 	# Setup adversary
-	adversary = buildDiscriminator()
-	adversary.compile(loss = loss, optimizer = opt, metrics = ["accuracy"])
+	discriminator = buildDiscriminator()
+	discriminator.compile(loss = loss, optimizer = opt, metrics = ["accuracy"])
 
 	# Setup generator and GAN
-	adversary.trainable = False                     # freeze adversary's weights when training GAN
+	discriminator.trainable = False                     # freeze adversary's weights when training GAN
 	generator = buildGenerator()                    # generator is trained within GAN in relation to adversary performance
 	noise = Input(shape = (NOISE_SIZE,))
-	gan = Model(noise, adversary(generator(noise))) # GAN feeds generator into adversary
+	gan = Model(noise, discriminator(generator(noise))) # GAN feeds generator into adversary
 	gan.compile(loss = loss, optimizer = opt)
 
 	# Training
 	trueCol = np.ones((batchSize, 1))
 	falseCol = np.zeros((batchSize, 1))
+	advLoss = []
+	genLoss = 0
+
 	for epoch in range(epochs):
 
-		# Train discriminator with a true and false batch
-		batch = images[np.random.randint(0, images.shape[0], batchSize)]
-		batch = batch.reshape(batchSize, images.shape[1], images.shape[2], COLORS)
-		noise = np.random.normal(0, 1, (batchSize, NOISE_SIZE))
-		genImages = generator.predict(noise)
-		advTrueLoss = adversary.train_on_batch(batch, trueCol)
-		advFalseLoss = adversary.train_on_batch(genImages, falseCol)
-		advLoss = np.add(advTrueLoss, advFalseLoss) * 0.5
+		for i in range(d):
+			# Train discriminator with a true and false batch
+			batch = images[np.random.randint(0, images.shape[0], batchSize)]
+			batch = batch.reshape(batchSize, images.shape[1], images.shape[2], COLORS)
+			noise = np.random.normal(0, 1, (batchSize, NOISE_SIZE))
+			genImages = generator.predict(noise)
+			advTrueLoss = discriminator.train_on_batch(batch, trueCol)
+			advFalseLoss = discriminator.train_on_batch(genImages, falseCol)
+			advLoss = np.add(advTrueLoss, advFalseLoss) * 0.5
 
-		# Train generator by training GAN while keeping adversary component constant
-		noise = np.random.normal(0, 1, (batchSize, NOISE_SIZE))
-		genLoss = gan.train_on_batch(noise, trueCol)
+		for i in range(g):
+			# Train generator by training GAN while keeping adversary component constant
+			noise = np.random.normal(0, 1, (batchSize, NOISE_SIZE))
+			genLoss = gan.train_on_batch(noise, trueCol)
 
 		# Logging
-		if loggingInterval > 0 and epoch % loggingInterval == 0:
+		if loggingInterval > 0 and epoch % loggingInterval == 0 and VERBOSE_OUTPUT:
 			print("\tEpoch %d:" % epoch)
 			print("\t\tDiscriminator loss: %f." % advLoss[0])
 			print("\t\tDiscriminator accuracy: %.2f%%." % (100 * advLoss[1]))
 			print("\t\tGenerator loss: %f." % genLoss)
 			runGAN(generator, OUTPUT_DIR + "/" + OUTPUT_NAME + "_test_%d.png" % (epoch / loggingInterval))
 
-	return (generator, adversary, gan)
+	return (generator, discriminator, gan)
 
 # Generates an image using given generator
 def runGAN(generator, outfile):
@@ -200,6 +209,7 @@ def runGAN(generator, outfile):
 ################################### RUNNING THE PIPELINE #############################
 
 def main():
+
 	print("Starting %s image generator program." % LABEL)
 
 	# Make output directory
@@ -222,4 +232,18 @@ def main():
 	print("Images saved in %s directory." % OUTPUT_DIR)
 
 if __name__ == '__main__':
+
+	if len(sys.argv) == 1:
+		print("You can run \"python gan.py x y\" to run discriminator and generator in ratio of x:y")
+		print("Choosing default 1:1 ratio")
+
+	elif len(sys.argv) == 3:
+		d = int(sys.argv[1])
+		g = int(sys.argv[2])
+
+	else:
+		print("Usage 1: \"python gan.py\" for default 1:1 ratio of discriminator:generator")
+		print("Usage 2: \"python gan.py x y\" where x, y are ints describing ratio of runs of discriminator:generator")
+		exit(1)
+
 	main()
