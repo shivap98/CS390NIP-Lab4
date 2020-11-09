@@ -16,6 +16,10 @@ from tensorflow.keras.layers import Conv2D, MaxPooling2D, Conv2DTranspose, UpSam
 from tensorflow.keras.optimizers import Adam
 from scipy.misc import imsave
 import random
+import matplotlib
+matplotlib.use('Agg') 
+import matplotlib.pyplot as plt
+plt.switch_backend('Agg')
 
 random.seed(1618)
 np.random.seed(1618)
@@ -42,7 +46,7 @@ if DATASET == "mnist_d":
 elif DATASET == "mnist_f":
 	IMAGE_SHAPE = (IH, IW, IZ) = (28, 28, 1)
 	CLASSLIST = ["top", "trouser", "pullover", "dress", "coat", "sandal", "shirt", "sneaker", "bag", "ankle boot"]
-	LABEL = "shirt"
+	LABEL = "trouser"
 	COLORS = 1
 
 elif DATASET == "cifar_10":
@@ -106,7 +110,29 @@ def preprocessData(raw):
 
 	return xP
 
+def plotGraphs(d_loss, g_loss):
 
+	plt.figure(1)
+	plt.title("Discriminator false loss")
+	plt.xlabel("Number of epochs")
+	plt.ylabel("Loss percentage")
+	plt.plot(range(len(d_loss[0])), d_loss[0], label='Discriminator false loss')
+	plt.savefig(OUTPUT_NAME + "_discloss_false.png")
+
+	plt.figure(2)
+	plt.title("Discriminator true loss")
+	plt.xlabel("Number of epochs")
+	plt.ylabel("Loss percentage")
+	plt.plot(range(len(d_loss[1])), d_loss[1], label='Discriminator true loss')
+	plt.savefig(OUTPUT_NAME + "_discloss_true.png")
+
+	plt.figure(3)
+	plt.title("Generator loss")
+	plt.xlabel("Number of epochs")
+	plt.ylabel("Loss percentage")
+	plt.plot(range(len(g_loss)), g_loss, label='Generator loss')
+	plt.savefig(OUTPUT_NAME + "_genloss.png")
+	
 ################################### CREATING A GAN ###################################
 
 # Model that discriminates between fake and real dataset images
@@ -169,6 +195,8 @@ def buildGAN(images, epochs = 40000, batchSize = 32, loggingInterval = 0):
 	falseCol = np.zeros((batchSize, 1))
 	advLoss = []
 	genLoss = 0
+	d_loss = [[],[]]
+	g_loss = []
 
 	for epoch in range(epochs):
 
@@ -181,11 +209,14 @@ def buildGAN(images, epochs = 40000, batchSize = 32, loggingInterval = 0):
 			advTrueLoss = discriminator.train_on_batch(batch, trueCol)
 			advFalseLoss = discriminator.train_on_batch(genImages, falseCol)
 			advLoss = np.add(advTrueLoss, advFalseLoss) * 0.5
+			d_loss[0].append(advTrueLoss)
+			d_loss[1].append(advFalseLoss)
 
 		for i in range(g):
 			# Train generator by training GAN while keeping adversary component constant
 			noise = np.random.normal(0, 1, (batchSize, NOISE_SIZE))
 			genLoss = gan.train_on_batch(noise, trueCol)
+			g_loss.append(genLoss)
 
 		# Logging
 		if loggingInterval > 0 and epoch % loggingInterval == 0 and VERBOSE_OUTPUT:
@@ -194,6 +225,9 @@ def buildGAN(images, epochs = 40000, batchSize = 32, loggingInterval = 0):
 			print("\t\tDiscriminator accuracy: %.2f%%." % (100 * advLoss[1]))
 			print("\t\tGenerator loss: %f." % genLoss)
 			runGAN(generator, OUTPUT_DIR + "/" + OUTPUT_NAME + "_test_%d.png" % (epoch / loggingInterval))
+
+
+	plotGraphs(d_loss, g_loss)
 
 	return (generator, discriminator, gan)
 
